@@ -1,0 +1,50 @@
+{
+  "name": "@convo/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch-path=./src --watch-preserve-output --import tsx src/server.ts",
+    "build": "prisma generate && tsup",
+    "start": "node dist/server.js",
+    "typecheck": "prisma generate && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@convo/shared": "*",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.3",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "ioredis": "^5.8.2",
+    "jsonwebtoken": "^9.0.3",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "ws": "^8.18.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.5",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.10.0",
+    "@types/supertest": "^6.0.3",
+    "@types/ws": "^8.18.1",
+    "pino-pretty": "^13.1.2",
+    "prisma": "7.10.1",
+    "supertest": "^7.3.1",
+    "tsup": "^9.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "^5.0.5"
+  }
+}

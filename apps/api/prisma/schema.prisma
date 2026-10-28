@@ -1,0 +1,116 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Keep enum values in sync with packages/shared/src/enums.ts.
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  refreshTokens   RefreshToken[]
+  memberships     WorkspaceMember[]
+  channelMembers  ChannelMember[]
+  messages        Message[]
+  createdChannels Channel[]
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /** Tokens created by rotating the same login share a family, so a reused token can revoke all of them. */
+  familyId   String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model Workspace {
+  id         String   @id @default(cuid())
+  name       String
+  slug       String   @unique
+  /** Anyone with this code can join. Owners and admins can rotate it. */
+  inviteCode String   @unique
+  createdAt  DateTime @default(now())
+
+  members  WorkspaceMember[]
+  channels Channel[]
+}
+
+model WorkspaceMember {
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  topic       String   @default("")
+  /** Private channels are visible only to their members. */
+  isPrivate   Boolean  @default(false)
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  members  ChannelMember[]
+  messages Message[]
+
+  @@unique([workspaceId, name])
+}
+
+model ChannelMember {
+  channelId         String
+  channel           Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt          DateTime @default(now())
+  /** Read pointer: the newest message this member has seen. Only ever moves forward. */
+  lastReadMessageId String?
+  lastReadAt        DateTime?
+
+  @@id([channelId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id        String    @id @default(cuid())
+  channelId String
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime  @default(now())
+  editedAt  DateTime?
+
+  // History is read newest-first per channel, with id as a tie-breaker.
+  @@index([channelId, createdAt(sort: Desc), id(sort: Desc)])
+}
