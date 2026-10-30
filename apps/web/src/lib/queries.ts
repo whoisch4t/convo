@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
-import type { Channel, MessagePage, User, Workspace, WorkspaceMember } from '@convo/shared';
+import type { Channel, MessagePage, NotificationList, User, Workspace, WorkspaceMember } from '@convo/shared';
 import { api } from './api';
 
 export const keys = {
@@ -10,7 +10,14 @@ export const keys = {
   members: (workspaceId: string) => ['members', workspaceId] as const,
   channelMembers: (channelId: string) => ['channel-members', channelId] as const,
   messages: (channelId: string) => ['messages', channelId] as const,
+  notifications: (workspaceId: string) => ['notifications', workspaceId] as const,
 };
+
+export const useNotifications = (workspaceId: string) =>
+  useQuery({
+    queryKey: keys.notifications(workspaceId),
+    queryFn: () => api<NotificationList>('/notifications', { query: { workspaceId } }),
+  });
 
 export const useMe = () =>
   useQuery({ queryKey: keys.me, queryFn: () => api<{ user: User }>('/auth/me').then((r) => r.user) });

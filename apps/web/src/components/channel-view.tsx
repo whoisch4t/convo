@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { MESSAGE_MAX_LENGTH, MANAGER_ROLES, TYPING_THROTTLE_MS, type Channel, type ServerEvent } from '@convo/shared';
+import { MANAGER_ROLES, type Attachment, type Channel, type ServerEvent } from '@convo/shared';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/cn';
 import { joinNames } from '@/lib/format';
-import { keys, useChannels, useMe, useMembers, useMessages, useWorkspace } from '@/lib/queries';
-import { IconHash, IconLock, IconSend, IconUsers } from './icons';
+import { keys, useChannelMembers, useChannels, useMe, useMembers, useMessages, useWorkspace } from '@/lib/queries';
+import { Composer } from './composer';
+import { IconHash, IconLock, IconUsers } from './icons';
 import { MessageList, type OutgoingMessage } from './message-list';
 import { AddPeopleModal } from './modals';
 import { upsertMessage, useRealtime } from './realtime-provider';
@@ -23,71 +23,6 @@ function TypingIndicator({ channelId }: { channelId: string }) {
       {names.length === 1 && `${names[0]} is typing…`}
       {names.length > 1 && `${joinNames(names)} are typing…`}
     </p>
-  );
-}
-
-function Composer({ channel, onSend }: { channel: Channel; onSend: (content: string) => void }) {
-  const { client } = useRealtime();
-  const [value, setValue] = useState('');
-  const lastTyping = useRef(0);
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  const submit = () => {
-    const content = value.trim();
-    if (!content || content.length > MESSAGE_MAX_LENGTH) return;
-    onSend(content);
-    setValue('');
-    lastTyping.current = 0;
-  };
-
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      submit();
-    }
-  };
-
-  const onChange = (next: string) => {
-    setValue(next);
-    const now = Date.now();
-    if (next.trim() && now - lastTyping.current > TYPING_THROTTLE_MS) {
-      lastTyping.current = now;
-      client.send({ type: 'typing', channelId: channel.id });
-    }
-  };
-
-  // Grow with the content, up to a limit.
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  }, [value]);
-
-  const tooLong = value.length > MESSAGE_MAX_LENGTH;
-  return (
-    <div className="px-4 pb-4">
-      <div className="flex items-end gap-2 rounded-xl border border-border bg-surface p-2 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
-        <textarea
-          ref={ref}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          rows={1}
-          placeholder={`Message #${channel.name}`}
-          aria-label={`Message #${channel.name}`}
-          className="max-h-[200px] min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm placeholder:text-subtle focus:outline-none"
-        />
-        <Button size="sm" onClick={submit} disabled={!value.trim() || tooLong} aria-label="Send message">
-          <IconSend />
-        </Button>
-      </div>
-      <p className={cn('mt-1 px-1 text-[11px] text-subtle', tooLong && 'text-danger')}>
-        {value.length > MESSAGE_MAX_LENGTH - 500
-          ? `${value.length} / ${MESSAGE_MAX_LENGTH}`
-          : 'Enter to send · Shift + Enter for a new line'}
-      </p>
-    </div>
   );
 }
 
@@ -133,8 +68,9 @@ export function ChannelView({ workspaceId, channelId }: { workspaceId: string; c
   }, []);
 
   const transmit = useCallback(
-    (clientId: string, content: string) => {
-      const sent = client.send({ type: 'message.send', channelId, content, clientId });
+    (clientId: string, content: string, attachments: Attachment[]) => {
+      const attachmentIds = attachments.map((a) => a.id);
+      const sent = client.send({ type: 'message.send', channelId, content, attachmentIds, clientId });
       if (!sent) return fail(clientId, 'You are offline.');
       ackTimers.current.set(
         clientId,
@@ -144,10 +80,13 @@ export function ChannelView({ workspaceId, channelId }: { workspaceId: string; c
     [channelId, client, fail],
   );
 
-  const send = (content: string) => {
+  const send = (content: string, attachments: Attachment[]) => {
     const clientId = crypto.randomUUID();
-    setOutgoing((list) => [...list, { clientId, content, createdAt: new Date().toISOString(), status: 'sending' }]);
-    transmit(clientId, content);
+    setOutgoing((list) => [
+      ...list,
+      { clientId, content, attachments, createdAt: new Date().toISOString(), status: 'sending' },
+    ]);
+    transmit(clientId, content, attachments);
   };
 
   const retry = (clientId: string) => {
@@ -156,7 +95,7 @@ export function ChannelView({ workspaceId, channelId }: { workspaceId: string; c
     setOutgoing((list) =>
       list.map((o) => (o.clientId === clientId ? { ...o, status: 'sending', error: undefined } : o)),
     );
-    transmit(clientId, item.content);
+    transmit(clientId, item.content, item.attachments);
   };
 
   useEffect(() => {
@@ -212,6 +151,12 @@ export function ChannelView({ workspaceId, channelId }: { workspaceId: string; c
   });
 
   const names = useMemo(() => new Map(members.data?.map((m) => [m.user.id, m.user.name])), [members.data]);
+  // Mention suggestions: everyone who can see the channel.
+  const channelMembers = useChannelMembers(channelId);
+  const candidates = useMemo(
+    () => (channel?.isPrivate ? (channelMembers.data ?? []) : (members.data ?? []).map((m) => m.user)),
+    [channel?.isPrivate, channelMembers.data, members.data],
+  );
   const canModerate = !!workspace.data && MANAGER_ROLES.includes(workspace.data.role);
   const loadOlder = useCallback(() => void messages.fetchNextPage(), [messages]);
 
@@ -266,7 +211,7 @@ export function ChannelView({ workspaceId, channelId }: { workspaceId: string; c
 
       <TypingIndicator channelId={channelId} />
       {channel.isMember ? (
-        <Composer channel={channel} onSend={send} />
+        <Composer key={channel.id} channel={channel} candidates={candidates} meId={meId} onSend={send} />
       ) : (
         <div className="mx-4 mb-4 flex flex-col items-center gap-2 rounded-xl border border-border bg-surface-2 p-4 text-sm sm:flex-row sm:justify-between">
           <span className="text-muted">You are viewing #{channel.name}. Join to post messages.</span>

@@ -3,8 +3,8 @@
  * Client frames are validated with Zod on the server; server frames are typed only.
  */
 import { z } from 'zod';
-import { messageContentSchema } from './schemas';
-import type { Channel, Message, ReadPointer, UserSummary } from './types';
+import { attachmentIdsSchema, messageTextSchema } from './schemas';
+import type { AppNotification, Channel, Message, ReadPointer, UserSummary } from './types';
 
 const id = z.string().min(1).max(64);
 
@@ -16,7 +16,9 @@ export const clientEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('message.send'),
     channelId: id,
-    content: messageContentSchema,
+    content: messageTextSchema.default(''),
+    /** Files uploaded beforehand with POST /api/channels/:id/attachments. */
+    attachmentIds: attachmentIdsSchema,
     /** Echoed back in the ack so the client can match it with its optimistic message. */
     clientId: z.string().min(1).max(64),
   }),
@@ -49,7 +51,11 @@ export type ServerEvent =
   /** Sent to one user when they were added to (or removed from) a channel. */
   | { type: 'channel.access'; workspaceId: string; channelId: string; granted: boolean }
   | { type: 'workspace.member.joined'; workspaceId: string; user: UserSummary }
-  | { type: 'workspace.member.left'; workspaceId: string; userId: string };
+  | { type: 'workspace.member.left'; workspaceId: string; userId: string }
+  /** Sent to the mentioned user only. */
+  | { type: 'notification.created'; notification: AppNotification }
+  /** Keeps the bell in sync across the user's tabs. */
+  | { type: 'notification.read'; ids: string[] };
 
 /** How long a typing indicator stays visible without a new typing event. */
 export const TYPING_TTL_MS = 5000;

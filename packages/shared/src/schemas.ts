@@ -70,8 +70,33 @@ export const messageContentSchema = z
   .min(1, 'Message cannot be empty')
   .max(MESSAGE_MAX_LENGTH, `Messages can be at most ${MESSAGE_MAX_LENGTH} characters`);
 
-export const messageCreateSchema = z.object({ content: messageContentSchema });
+/** Text of a new message. It may be empty when the message has attachments; the server checks that. */
+export const messageTextSchema = z
+  .string()
+  .trim()
+  .max(MESSAGE_MAX_LENGTH, `Messages can be at most ${MESSAGE_MAX_LENGTH} characters`);
+
+export const MAX_ATTACHMENTS_PER_MESSAGE = 5;
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+export const attachmentIdsSchema = z
+  .array(id)
+  .max(MAX_ATTACHMENTS_PER_MESSAGE, `Attach at most ${MAX_ATTACHMENTS_PER_MESSAGE} files`)
+  .default([]);
+
+export const messageCreateSchema = z.object({
+  content: messageTextSchema.default(''),
+  attachmentIds: attachmentIdsSchema,
+});
 export type MessageCreateInput = z.input<typeof messageCreateSchema>;
+
+export const messageUpdateSchema = z.object({ content: messageContentSchema });
+
+/** The file body is sent raw; its name and type travel in the query string. */
+export const attachmentUploadQuerySchema = z.object({
+  name: z.string().trim().min(1, 'File name is required').max(200),
+  type: z.string().trim().max(100).optional(),
+});
 
 export const messageListQuerySchema = z.object({
   /** Return messages older than this message id. */
@@ -86,3 +111,13 @@ export const searchQuerySchema = z.object({
   channelId: id.optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
+
+// ---------- Notifications ----------
+
+export const notificationListQuerySchema = z.object({
+  workspaceId: id,
+  limit: z.coerce.number().int().min(1).max(50).default(30),
+});
+
+/** Marks the given notifications read, or every notification in the workspace when ids is omitted. */
+export const notificationReadSchema = z.object({ workspaceId: id, ids: z.array(id).min(1).max(100).optional() });

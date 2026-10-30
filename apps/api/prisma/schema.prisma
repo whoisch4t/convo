@@ -27,13 +27,18 @@ model User {
   channelMembers  ChannelMember[]
   messages        Message[]
   createdChannels Channel[]
+  attachments     Attachment[]
+  notifications   Notification[]    @relation("recipient")
+  notified        Notification[]    @relation("actor")
 }
 
 model RefreshToken {
   id         String    @id @default(cuid())
   userId     String
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  /** Tokens created by rotating the same login share a family, so a reused token can revoke all of them. */
+  /**
+   * Tokens created by rotating the same login share a family, so a reused token can revoke all of them.
+   */
   familyId   String
   tokenHash  String    @unique
   expiresAt  DateTime
@@ -49,12 +54,15 @@ model Workspace {
   id         String   @id @default(cuid())
   name       String
   slug       String   @unique
-  /** Anyone with this code can join. Owners and admins can rotate it. */
+  /**
+   * Anyone with this code can join. Owners and admins can rotate it.
+   */
   inviteCode String   @unique
   createdAt  DateTime @default(now())
 
-  members  WorkspaceMember[]
-  channels Channel[]
+  members       WorkspaceMember[]
+  channels      Channel[]
+  notifications Notification[]
 }
 
 model WorkspaceMember {
@@ -70,30 +78,36 @@ model WorkspaceMember {
 }
 
 model Channel {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name        String
-  topic       String   @default("")
-  /** Private channels are visible only to their members. */
-  isPrivate   Boolean  @default(false)
+  topic       String    @default("")
+  /**
+   * Private channels are visible only to their members.
+   */
+  isPrivate   Boolean   @default(false)
   createdById String?
-  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
 
-  members  ChannelMember[]
-  messages Message[]
+  members       ChannelMember[]
+  messages      Message[]
+  attachments   Attachment[]
+  notifications Notification[]
 
   @@unique([workspaceId, name])
 }
 
 model ChannelMember {
   channelId         String
-  channel           Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channel           Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
   userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  joinedAt          DateTime @default(now())
-  /** Read pointer: the newest message this member has seen. Only ever moves forward. */
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt          DateTime  @default(now())
+  /**
+   * Read pointer: the newest message this member has seen. Only ever moves forward.
+   */
   lastReadMessageId String?
   lastReadAt        DateTime?
 
@@ -111,6 +125,55 @@ model Message {
   createdAt DateTime  @default(now())
   editedAt  DateTime?
 
+  attachments   Attachment[]
+  notifications Notification[]
+
   // History is read newest-first per channel, with id as a tie-breaker.
   @@index([channelId, createdAt(sort: Desc), id(sort: Desc)])
+}
+
+/// A file uploaded to a channel. It is "pending" (messageId null) until sent with a message;
+/// pending uploads older than an hour are swept, along with any file that lost its row.
+model Attachment {
+  id         String   @id @default(cuid())
+  channelId  String
+  channel    Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  uploaderId String
+  uploader   User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  messageId  String?
+  message    Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  name       String
+  mimeType   String
+  size       Int
+  /// Random name in file storage. Never derived from user input.
+  storageKey String   @unique
+  createdAt  DateTime @default(now())
+
+  @@index([messageId])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  MENTION
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  type        NotificationType @default(MENTION)
+  userId      String
+  user        User             @relation("recipient", fields: [userId], references: [id], onDelete: Cascade)
+  actorId     String
+  actor       User             @relation("actor", fields: [actorId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channelId   String
+  channel     Channel          @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  messageId   String
+  message     Message          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  readAt      DateTime?
+  createdAt   DateTime         @default(now())
+
+  /// Editing a message never notifies the same person twice.
+  @@unique([userId, messageId])
+  @@index([userId, workspaceId, createdAt(sort: Desc)])
 }

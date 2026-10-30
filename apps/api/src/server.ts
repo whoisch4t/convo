@@ -6,6 +6,7 @@ import { prisma } from './lib/prisma';
 import { store } from './lib/cache';
 import { realtime } from './realtime';
 import { Gateway } from './realtime/gateway';
+import { sweepUploads } from './modules/attachments.service';
 
 const server = createServer(createApp());
 const gateway = new Gateway({ bus: realtime.bus, presence: realtime.presence });
@@ -14,6 +15,11 @@ gateway.attach(server);
 server.listen(env.PORT, () => {
   logger.info(`Convo API listening on http://localhost:${env.PORT} (WebSocket at /ws)`);
 });
+
+// Clean up unsent uploads and orphaned files once an hour. Running it on several instances at once is harmless.
+const sweep = () => void sweepUploads().catch((err) => logger.warn({ err }, 'Upload sweep failed'));
+setTimeout(sweep, 60_000).unref();
+setInterval(sweep, 60 * 60_000).unref();
 
 async function shutdown(signal: string) {
   logger.info(`${signal} received, shutting down`);

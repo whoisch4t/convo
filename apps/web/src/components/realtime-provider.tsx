@@ -3,7 +3,14 @@
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { TYPING_TTL_MS, type Channel, type Message, type ServerEvent, type UserSummary } from '@convo/shared';
+import {
+  TYPING_TTL_MS,
+  type Channel,
+  type Message,
+  type NotificationList,
+  type ServerEvent,
+  type UserSummary,
+} from '@convo/shared';
 import { RealtimeClient, type ConnectionStatus } from '@/lib/realtime';
 import { keys, type MessagesData } from '@/lib/queries';
 
@@ -100,6 +107,7 @@ export function RealtimeProvider({
       client.onReconnect(() => {
         void qc.invalidateQueries({ queryKey: keys.channels(workspaceId) });
         void qc.invalidateQueries({ queryKey: keys.members(workspaceId) });
+        void qc.invalidateQueries({ queryKey: keys.notifications(workspaceId) });
         if (activeChannel.current) void qc.resetQueries({ queryKey: keys.messages(activeChannel.current) });
       }),
     [client, qc, workspaceId],
@@ -203,6 +211,23 @@ export function RealtimeProvider({
           if (event.type === 'channel.access' && !event.granted && activeChannel.current === event.channelId) {
             void qc.resetQueries({ queryKey: keys.messages(event.channelId) });
           }
+          break;
+        case 'notification.created': {
+          const { notification } = event;
+          if (notification.workspaceId !== workspaceId) break;
+          qc.setQueryData<NotificationList>(
+            keys.notifications(workspaceId),
+            (data) =>
+              data && {
+                items: [notification, ...data.items.filter((n) => n.id !== notification.id)],
+                unreadCount: data.unreadCount + 1,
+              },
+          );
+          break;
+        }
+        case 'notification.read':
+          // The ids may include notifications outside the loaded page, so ask for the real count.
+          void qc.invalidateQueries({ queryKey: keys.notifications(workspaceId) });
           break;
         case 'workspace.member.joined':
         case 'workspace.member.left':

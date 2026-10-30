@@ -23,6 +23,8 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY apps/api/package.json apps/api/prisma.config.ts ./apps/api/
 COPY apps/api/prisma ./apps/api/prisma
 WORKDIR /app/apps/api
+# The uploads volume takes this directory's owner when Docker first creates it.
+RUN mkdir -p /data/uploads && chown node:node /data/uploads
 USER node
 EXPOSE 4200
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]

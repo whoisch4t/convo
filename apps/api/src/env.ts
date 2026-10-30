@@ -13,6 +13,8 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /** Uploaded files. Several API instances must share this directory (a volume in Docker). */
+  UPLOAD_DIR: z.string().default('uploads'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
 });
 

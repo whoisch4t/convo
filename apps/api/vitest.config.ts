@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import os from 'node:os';
+import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL ?? 'postgresql://convo:convo@localhost:5434/convo_test';
@@ -14,6 +16,7 @@ export default defineConfig({
       NODE_ENV: 'test',
       DATABASE_URL: testDatabaseUrl,
       TEST_DATABASE_URL: testDatabaseUrl,
+      UPLOAD_DIR: path.join(os.tmpdir(), 'convo-test-uploads'),
       JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET ?? 'test-access-secret-test-access-secret-0000',
       JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET ?? 'test-refresh-secret-test-refresh-secret-00',
     },

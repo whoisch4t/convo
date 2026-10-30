@@ -230,7 +230,7 @@ export class Gateway {
       }
 
       case 'message.send': {
-        const message = await createMessage(conn.user.id, event.channelId, event.content);
+        const message = await createMessage(conn.user.id, event.channelId, event.content, event.attachmentIds);
         return this.send(conn, { type: 'message.ack', clientId: event.clientId, message });
       }
 

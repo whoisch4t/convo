@@ -24,3 +24,9 @@ export function joinNames(names: string[], max = 2) {
   const rest = names.length - max;
   return `${names.slice(0, max).join(', ')} and ${rest} other${rest === 1 ? '' : 's'}`;
 }
+
+export function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}

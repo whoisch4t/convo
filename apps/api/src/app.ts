@@ -15,15 +15,21 @@ import { workspacesRouter } from './modules/workspaces';
 import { channelsRouter } from './modules/channels';
 import { messagesRouter } from './modules/messages';
 import { realtimeRouter } from './modules/realtime';
+import { attachmentsRouter } from './modules/attachments';
+import { notificationsRouter } from './modules/notifications';
 
 /**
- * Cookies are SameSite=Lax, and every write must be JSON. Browsers cannot send a cross-site
- * JSON request without a CORS preflight, which this API never approves for other origins.
- * Together that blocks CSRF without a separate token.
+ * Cookies are SameSite=Lax, and every write must be JSON (or a raw file upload). Browsers cannot
+ * send either content type cross-site without a CORS preflight, which this API never approves
+ * for other origins. Together that blocks CSRF without a separate token.
  */
 function requireJsonForWrites(req: Request, _res: Response, next: NextFunction) {
   const hasBody = Number(req.get('content-length') ?? 0) > 0 || req.get('transfer-encoding');
-  if (['POST', 'PUT', 'PATCH'].includes(req.method) && hasBody && !req.is('application/json')) {
+  if (
+    ['POST', 'PUT', 'PATCH'].includes(req.method) &&
+    hasBody &&
+    !req.is(['application/json', 'application/octet-stream'])
+  ) {
     return next(new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Send the request body as application/json'));
   }
   next();
@@ -82,6 +88,8 @@ export function createApp() {
   api.use('/channels', channelsRouter);
   api.use('/messages', messagesRouter);
   api.use('/realtime', realtimeRouter);
+  api.use('/attachments', attachmentsRouter);
+  api.use('/notifications', notificationsRouter);
 
   app.use('/api', api);
   app.use(notFoundHandler);

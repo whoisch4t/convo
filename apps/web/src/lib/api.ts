@@ -1,4 +1,4 @@
-import type { ApiErrorBody } from '@convo/shared';
+import type { ApiErrorBody, Attachment } from '@convo/shared';
 
 export class ApiError extends Error {
   constructor(
@@ -21,6 +21,8 @@ type Query = Record<string, string | number | undefined | null | string[]>;
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
+  /** Sent as-is with Content-Type application/octet-stream, e.g. a file. */
+  file?: Blob;
   query?: Query;
 }
 
@@ -46,12 +48,17 @@ function refreshSession() {
   return refreshing;
 }
 
-async function send(path: string, { method = 'GET', body, query }: RequestOptions) {
+async function send(path: string, { method = 'GET', body, file, query }: RequestOptions) {
+  const headers = file
+    ? { 'Content-Type': 'application/octet-stream' }
+    : body === undefined
+      ? undefined
+      : { 'Content-Type': 'application/json' };
   return fetch(buildUrl(path, query), {
     method,
     credentials: 'same-origin',
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers,
+    body: file ?? (body === undefined ? undefined : JSON.stringify(body)),
   });
 }
 
@@ -75,4 +82,12 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     throw new ApiError(res.status, err?.code ?? 'UNKNOWN', err?.message ?? res.statusText, err?.details);
   }
   return data as T;
+}
+
+export function uploadFile(channelId: string, file: File) {
+  return api<{ attachment: Attachment }>(`/channels/${channelId}/attachments`, {
+    method: 'POST',
+    file,
+    query: { name: file.name, type: file.type },
+  }).then((r) => r.attachment);
 }

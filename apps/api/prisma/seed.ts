@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { mentionToken } from '@convo/shared';
 import { prisma } from '../src/lib/prisma';
 
 const PASSWORD = 'demo1234';
@@ -9,7 +10,7 @@ const USERS = [
   { email: 'elif@convo.dev', name: 'Elif Kaya' },
 ];
 
-// [channel, author index, message]
+// [channel, author index, message]. {demo} becomes a mention of the demo user.
 const SCRIPT: [string, number, string][] = [
   ['general', 1, 'Günaydın herkese ☀️'],
   ['general', 2, 'Standup 10 dk sonra, link takvimde'],
@@ -23,6 +24,7 @@ const SCRIPT: [string, number, string][] = [
   ['design', 3, 'Yeni sidebar mockup’ları Figma’da, yorumlarınızı bekliyorum'],
   ['design', 1, 'Unread badge’ler çok iyi olmuş. Accent rengi biraz daha yumuşak olabilir mi?'],
   ['design', 3, 'Olur, iki alternatif deneyeyim'],
+  ['design', 3, '{demo} ikon setini de değiştirelim mi? Sen karar ver'],
   ['leadership', 1, 'Q4 işe alım planı taslağı hazır, dokümana ekledim'],
   ['leadership', 0, 'Teşekkürler, akşam okuyorum'],
   ['general', 1, 'Öğlen ne yiyoruz? Pide mi döner mi 🤔'],
@@ -82,8 +84,9 @@ async function main() {
 
   // Spread messages over the last few hours, oldest first.
   const start = Date.now() - SCRIPT.length * 7 * 60_000;
-  for (const [i, [channel, author, content]] of SCRIPT.entries()) {
-    await prisma.message.create({
+  for (const [i, [channel, author, text]] of SCRIPT.entries()) {
+    const content = text.replace('{demo}', mentionToken(demo.id));
+    const message = await prisma.message.create({
       data: {
         channelId: channels.get(channel)!,
         authorId: users[author]!.id,
@@ -91,6 +94,19 @@ async function main() {
         createdAt: new Date(start + i * 7 * 60_000),
       },
     });
+    // Seeding skips the service layer, so create the mention notification here.
+    if (content !== text) {
+      await prisma.notification.create({
+        data: {
+          userId: demo.id,
+          actorId: users[author]!.id,
+          workspaceId: workspace.id,
+          channelId: message.channelId,
+          messageId: message.id,
+          createdAt: message.createdAt,
+        },
+      });
+    }
   }
 
   // The demo user has read #general up to the lunch question, so the last message shows as unread.

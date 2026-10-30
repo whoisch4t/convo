@@ -1,5 +1,6 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import {
+  attachmentUploadQuerySchema,
   channelAddMemberSchema,
   channelUpdateSchema,
   messageCreateSchema,
@@ -7,12 +8,15 @@ import {
   readSchema,
   type MessagePage,
 } from '@convo/shared';
-import { badRequest, notFound } from '../lib/errors';
+import { env } from '../env';
+import { badRequest, HttpError, notFound } from '../lib/errors';
 import { prisma } from '../lib/prisma';
 import { currentUserId } from '../middleware/auth';
+import { rateLimit } from '../middleware/rate-limit';
 import { parse } from '../middleware/validate';
 import { publish, topics } from '../realtime';
 import { forbidden, isManager, requireChannelAccess, requireChannelMember } from './access';
+import { uploadAttachment } from './attachments.service';
 import { addChannelMember, announceChannel, removeChannelMember } from './channels.service';
 import { createMessage, markRead, messageSelect, toMessage } from './messages.service';
 
@@ -174,9 +178,32 @@ channelsRouter.get('/:id/messages', async (req, res) => {
 });
 
 channelsRouter.post('/:id/messages', async (req, res) => {
-  const { content } = parse(messageCreateSchema, req.body);
-  const message = await createMessage(currentUserId(req), req.params.id, content);
+  const { content, attachmentIds } = parse(messageCreateSchema, req.body);
+  const message = await createMessage(currentUserId(req), req.params.id, content, attachmentIds);
   res.status(201).json({ message });
+});
+
+const uploadLimiter = rateLimit({
+  name: 'upload',
+  windowMs: 60_000,
+  max: env.NODE_ENV === 'test' ? 10_000 : 30,
+  key: currentUserId,
+});
+
+// The body is the raw file. application/octet-stream is not a "simple" content type, so a
+// cross-site page cannot send it without a CORS preflight: the same CSRF guard as JSON writes.
+channelsRouter.post('/:id/attachments', uploadLimiter, async (req: Request<{ id: string }>, res) => {
+  if (!req.is('application/octet-stream')) {
+    throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Send the file as application/octet-stream');
+  }
+  const { name, type } = parse(attachmentUploadQuerySchema, req.query);
+  const length = req.get('content-length');
+  const attachment = await uploadAttachment(currentUserId(req), req.params.id, req, {
+    name,
+    type,
+    contentLength: length ? Number(length) : undefined,
+  });
+  res.status(201).json({ attachment });
 });
 
 channelsRouter.post('/:id/read', async (req, res) => {

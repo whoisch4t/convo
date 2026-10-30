@@ -1,7 +1,7 @@
 # Convo
 
-Realtime team chat: workspaces, public and private channels, live messaging, presence, typing indicators,
-read receipts and unread counts, built on raw WebSockets and Redis pub/sub so it scales past one server.
+Realtime team chat: workspaces, public and private channels, live messaging, file sharing, @mentions with
+notifications, presence, typing indicators, read receipts and unread counts, built on raw WebSockets and Redis pub/sub so it scales past one server.
 
 **Stack:** TypeScript · Next.js 16 · React 19 · Node.js · Express 5 · `ws` · Redis · PostgreSQL · Prisma 7 · Zod ·
 TanStack Query · Tailwind CSS 4 · Vitest · Playwright · Docker · GitHub Actions
@@ -13,6 +13,10 @@ TanStack Query · Tailwind CSS 4 · Vitest · Playwright · Docker · GitHub Act
 - **Channels:** public and private; private channels stay invisible (404, not 403) to non-members, and their
   names are never broadcast to the whole workspace.
 - **Live messaging:** send over the socket with an ack, optimistic rows with retry, live edits and deletions.
+- **Files:** attach up to 5 files (10 MB each) by picking, dragging or pasting. Images show inline, other
+  files as download cards.
+- **@mentions and notifications:** autocomplete while typing `@`, highlighted mentions, a bell with an unread
+  count that updates live in every tab and clears once the channel is read past the mention.
 - **Presence:** online/offline per workspace, correct with several tabs and several servers.
 - **Typing indicators:** throttled on both client and server, expire on their own.
 - **Read receipts and unread counts:** a per-member read pointer that only moves forward; "Seen by …" under
@@ -67,19 +71,34 @@ entries expire after 90 seconds instead of leaving people online forever.
 with messages are exact. The update runs `WHERE lastReadAt < :messageCreatedAt`, so two tabs can never move it
 backwards. Unread counts are one SQL query over all channels.
 
+**File uploads.** The browser uploads each file before sending the message, as the raw request body with
+`Content-Type: application/octet-stream` (`POST /api/channels/:id/attachments?name=…`). That type is not one a
+plain HTML form can send, so the CSRF guard used for JSON writes covers uploads too. The file streams to disk
+with a byte limit, and the message then links the uploads by id: only the uploader's own, unsent uploads in
+that channel. Image types are trusted only when the first bytes match (an HTML file renamed to `.png` becomes
+a plain download), only PNG/JPEG/GIF/WebP render inline, and every file response carries
+`Content-Security-Policy: sandbox`. Downloads check channel access on every request. An hourly sweep deletes
+uploads never sent and files whose rows were removed by cascades. Storage sits behind a four-method interface;
+the Docker setup shares one volume between both API instances.
+
+**Mentions** are stored in the text as `<@userId>`, so renaming someone never breaks old messages. The server
+only notifies people who can see the channel, a unique `(user, message)` index stops an edit from notifying
+anyone twice, and notifications go to the user's own topic, so every tab and every server sees them.
+
 ### Protocol
 
 All frames are JSON with a `type`. Client frames are validated with the Zod schema shared with the web app
 (`packages/shared/src/protocol.ts`).
 
-| Client → server                               | Server → client                                              |
-| --------------------------------------------- | ------------------------------------------------------------ |
-| `workspace.subscribe {workspaceId}`           | `hello`, `presence.snapshot`, `presence`                     |
-| `channel.focus {channelId \| null}`           | `message.created` / `.updated` / `.deleted`                  |
-| `message.send {channelId, content, clientId}` | `message.ack {clientId, message}`, `error {code, clientId?}` |
-| `typing {channelId}`                          | `typing {channelId, user}`                                   |
-| `read {channelId, messageId}`                 | `read {channelId, userId, messageId, at}`                    |
-| `ping`                                        | `pong`, `channel.*`, `workspace.member.*`                    |
+| Client → server                                              | Server → client                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `workspace.subscribe {workspaceId}`                          | `hello`, `presence.snapshot`, `presence`                     |
+| `channel.focus {channelId \| null}`                          | `message.created` / `.updated` / `.deleted`                  |
+| `message.send {channelId, content, attachmentIds, clientId}` | `message.ack {clientId, message}`, `error {code, clientId?}` |
+| `typing {channelId}`                                         | `typing {channelId, user}`                                   |
+| `read {channelId, messageId}`                                | `read {channelId, userId, messageId, at}`                    |
+| `ping`                                                       | `pong`, `channel.*`, `workspace.member.*`                    |
+|                                                              | `notification.created`, `notification.read {ids}`            |
 
 ## Running locally
 
@@ -117,6 +136,10 @@ npm run e2e       # Playwright: two browsers chatting
 npm run lint && npm run typecheck
 ```
 
+- `attachments.test.ts`: upload and download permissions, verified image types, the sandbox header, refusing
+  form and text bodies, the size limit, attaching each upload once, cleanup on delete and the upload sweep.
+- `notifications.test.ts`: who gets notified (not the author, not outsiders, not private-channel strangers),
+  edits notifying once, marking read, clearing on channel read, and live delivery to every tab.
 - `auth.test.ts`: register and login, identical errors for wrong password and unknown email, refresh token
   rotation, reuse detection revoking the whole family, two concurrent refreshes, logout and the CSRF guard.
 - `workspaces.test.ts`, `channels.test.ts`: permissions, private channel visibility, pagination without gaps,
@@ -145,11 +168,12 @@ packages/shared  Zod schemas, API types and the WebSocket protocol, used by both
 - **Access tokens live until they expire.** Logout revokes the refresh token right away, but an already issued access token stays valid for up to 15 minutes.
 - **Deletes are permanent.** Deleted messages are removed from the database, with no undo or audit trail.
 - **Plain text only.** Messages are shown as text with line breaks; there is no Markdown or link preview yet.
+- **Files live on local disk.** Several servers need a shared volume; there is no S3 backend or image thumbnails yet.
+- **Mention autocomplete matches the first word.** Typing a space closes the list, so pick a name before typing a surname.
 
 ## Roadmap
 
-- File uploads (S3-compatible storage, signed URLs)
-- @mentions with a notifications inbox
+- S3-compatible storage with signed URLs, and image thumbnails
 - Message threads and reactions
 - Turkish UI
 - Full-text search with PostgreSQL `tsvector`

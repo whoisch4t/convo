@@ -10,6 +10,7 @@ import { signOut } from '@/lib/session';
 import { Avatar } from './avatar';
 import { IconChevronDown, IconHash, IconLock, IconLogout, IconPlus, IconSearch, IconUsers } from './icons';
 import { CreateChannelModal, InviteModal, SearchModal } from './modals';
+import { NotificationBell } from './notifications';
 import { useRealtime } from './realtime-provider';
 
 const STATUS_LABEL = {
@@ -71,14 +72,17 @@ export function Sidebar({ workspace, me }: { workspace: Workspace; me: User }) {
   return (
     <aside className="flex h-full flex-col border-r border-border bg-surface">
       <div className="border-b border-border px-4 py-3">
-        <Link
-          href="/workspaces"
-          className="flex items-center gap-1 rounded-md font-semibold hover:text-primary"
-          title="Switch workspace"
-        >
-          <span className="truncate">{workspace.name}</span>
-          <IconChevronDown className="size-4 shrink-0 text-muted" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/workspaces"
+            className="flex min-w-0 flex-1 items-center gap-1 rounded-md font-semibold hover:text-primary"
+            title="Switch workspace"
+          >
+            <span className="truncate">{workspace.name}</span>
+            <IconChevronDown className="size-4 shrink-0 text-muted" />
+          </Link>
+          <NotificationBell workspaceId={workspace.id} />
+        </div>
         <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted" role="status" aria-live="polite">
           <span
             className={cn(

@@ -2,18 +2,21 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { MESSAGE_MAX_LENGTH, type Message, type ReadPointer } from '@convo/shared';
+import { MESSAGE_MAX_LENGTH, mentionedUserIds, type Attachment, type Message, type ReadPointer } from '@convo/shared';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatDay, formatFull, formatTime, joinNames, sameDay } from '@/lib/format';
+import { toEditable, toWire } from '@/lib/mentions';
 import { Avatar } from './avatar';
 import { IconPencil, IconTrash } from './icons';
+import { AttachmentList, MessageText } from './message-content';
 import { upsertMessage } from './realtime-provider';
 import { Button, Spinner } from './ui';
 
 export interface OutgoingMessage {
   clientId: string;
   content: string;
+  attachments: Attachment[];
   createdAt: string;
   status: 'sending' | 'failed';
   error?: string;
@@ -26,15 +29,22 @@ function MessageRow({
   compact,
   canEdit,
   canDelete,
+  names,
+  meId,
 }: {
   message: Message;
   compact: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  names: Map<string, string>;
+  meId: string;
 }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.content);
+  // Mentions are edited as @Name and turned back into <@id> on save.
+  const editable = () => toEditable(message.content, names);
+  const [draft, setDraft] = useState(() => editable().text);
+  const mentionsMe = mentionedUserIds(message.content).includes(meId);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const save = useMutation({
@@ -50,11 +60,11 @@ function MessageRow({
   const onEditKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Escape') {
       setEditing(false);
-      setDraft(message.content);
+      setDraft(editable().text);
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      const content = draft.trim();
+      const content = toWire(draft.trim(), editable().mentions);
       if (content && content !== message.content) save.mutate(content);
       else setEditing(false);
     }
@@ -62,7 +72,11 @@ function MessageRow({
 
   return (
     <div
-      className={cn('group relative flex gap-3 px-5 hover:bg-surface-2/60', compact ? 'py-0.5' : 'mt-2 pt-1.5 pb-0.5')}
+      className={cn(
+        'group relative flex gap-3 px-5',
+        compact ? 'py-0.5' : 'mt-2 pt-1.5 pb-0.5',
+        mentionsMe ? 'border-l-2 border-warning bg-mention/60 pl-[18px]' : 'hover:bg-surface-2/60',
+      )}
       data-testid="message"
     >
       <div className="w-9 shrink-0">
@@ -106,7 +120,7 @@ function MessageRow({
           </div>
         ) : (
           <p className="text-sm break-words whitespace-pre-wrap">
-            {message.content}
+            <MessageText content={message.content} names={names} meId={meId} />
             {message.editedAt && (
               <span className="ml-1 text-xs text-subtle" title={`Edited ${formatFull(message.editedAt)}`}>
                 (edited)
@@ -114,6 +128,7 @@ function MessageRow({
             )}
           </p>
         )}
+        <AttachmentList attachments={message.attachments} />
       </div>
 
       {(canEdit || canDelete) && !editing && (
@@ -292,6 +307,8 @@ export function MessageList({
                 compact={compact}
                 canEdit={m.author.id === meId}
                 canDelete={m.author.id === meId || canModerate}
+                names={names}
+                meId={meId}
               />
             </div>
           );
@@ -302,8 +319,9 @@ export function MessageList({
             <div className="w-9 shrink-0" />
             <div className="min-w-0 flex-1">
               <p className={cn('text-sm break-words whitespace-pre-wrap', o.status === 'sending' && 'text-muted')}>
-                {o.content}
+                <MessageText content={o.content} names={names} meId={meId} />
               </p>
+              <AttachmentList attachments={o.attachments} />
               {o.status === 'sending' ? (
                 <p className="text-xs text-subtle">Sending…</p>
               ) : (
